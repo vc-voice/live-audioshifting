@@ -26,6 +26,11 @@ Everything runs locally. After the first download of models, no internet is need
 - **Sound like me (voice cloning):** record about 15 s of your voice once. Each sentence Piper speaks is
   then converted to your own timbre, so you sound like *yourself* with the new accent or language. This
   adds about 0.2–1.5 s per sentence on a CPU (total about 0.8–2.4 s) and much less on an NVIDIA GPU.
+- **Follow my delivery** (on by default): for every phrase the app measures your pitch, how much it
+  moves, whether you end high (a question) or low, your loudness and your pace, then reshapes the
+  generated speech to match. It uses TD-PSOLA, which changes pitch one vocal cycle at a time, so your
+  timbre is kept. All changes are capped, so at worst it sounds like you on a slightly off day. Adds
+  about 0.1 s.
 - **Live FX:** mic → streaming pitch shifter (deeper/higher, robot, radio) → output with about 40 ms delay. No AI.
 
 Pitch, speed, effect, voice and translation can be changed while it is running.
@@ -91,12 +96,13 @@ Hugging Face cache.
 ## How it works
 
 ```
-mic (16 kHz) ─► energy VAD segmenter ─► faster-whisper ─► Argos Translate ─► Piper TTS ─► pitch/FX ─► output device
+mic (16 kHz) ─► energy VAD segmenter ─► faster-whisper ─► Argos Translate ─► Piper TTS ─► [your voice] ─► [your delivery] ─► FX ─► output device
                                          (text + language)  (if language differs)   (accent voice)          (e.g. CABLE Input)
 ```
 
 - `voxshift/segmenter.py`: adaptive-noise-floor utterance detector
 - `voxshift/stt.py`, `translate.py`, `tts.py`, `voices.py`: model wrappers
+- `voxshift/prosody.py`: pitch tracker, phrase analysis (level, range, ending, loudness, pace), TD-PSOLA
 - `voxshift/clone.py`: OpenVoice V2 tone-colour converter (decoder runs in ONNX Runtime on CPU)
 - `voxshift/effects.py`: resampling, pitch shift, streaming pitch shifter, robot and radio effects
 - `voxshift/pipeline.py`: threads that tie it all together

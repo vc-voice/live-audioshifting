@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -20,7 +21,7 @@ from typing import Callable
 import numpy as np
 import sounddevice as sd
 
-from . import effects
+from . import effects, prosody
 from .audio import device_rate, parse_device
 from .segmenter import UtteranceSegmenter
 
@@ -36,6 +37,7 @@ class Settings:
     source_language: str | None = None  # None = auto-detect
     translate: bool = True  # translate into the voice's language when they differ
     clone_voice: bool = False  # re-colour the output with your own recorded voice
+    follow_delivery: bool = True  # copy your pitch, intonation, loudness and pace per phrase
     whisper_model: str = "tiny"
     input_device: str | int | None = None
     output_device: str | int | None = None
@@ -222,12 +224,24 @@ class VoicePipeline:
         text = heard.text
         if s.translate and heard.language != target:
             text = self._translator.translate(text, heard.language, target)
-        # Queue each sentence for playback as soon as it is synthesized.
+        you = prosody.analyze(audio, STT_RATE) if s.follow_delivery else None
+        same_language = heard.language == self._tts.language
+
+        # Queue each sentence for playback as soon as it is ready.
         parts, rate, first_audio = [], self._tts.sample_rate, None
-        for wav, rate in self._tts.synthesize_stream(text, speed=s.speed):
+        for sentence, span in _sentences(text):
+            wav, rate = self._tts.synthesize(sentence, speed=s.speed)
+            if len(wav) == 0:
+                continue
             if s.clone_voice and self._cloner is not None:
                 src_se = self._cloner.source_embedding(self._tts.voice_key, self._tts)
                 wav, rate = self._cloner.convert(wav, rate, src_se)
+            if you is not None and you.ok:
+                pace = None
+                if same_language and s.speed == 1.0:
+                    synth_s = prosody.analyze(wav, rate).speech_s
+                    pace = prosody.pace_ratio(you, heard.text, synth_s / (span[1] - span[0]), text)
+                wav = prosody.match(wav, rate, you, span=span, pace=pace)
             wav = effects.apply_effects(wav, rate, pitch=s.pitch, effect=s.effect)
             self._out_q.put((wav, rate))
             parts.append(wav)
@@ -255,6 +269,20 @@ class VoicePipeline:
             self.on_event(Event(kind=kind, message=message, **kw))
         except Exception:
             log.exception("event handler failed")
+
+
+_SENTENCE_END = re.compile(r"(?<=[.!?。！？।])\s+")
+
+
+def _sentences(text: str) -> list[tuple[str, tuple[float, float]]]:
+    """Split into sentences, each with the share (0-1) of the phrase it covers."""
+    parts = [p for p in _SENTENCE_END.split(text.strip()) if p.strip()] or [text]
+    total = sum(len(p) for p in parts) or 1
+    out, pos = [], 0
+    for p in parts:
+        out.append((p, (pos / total, (pos + len(p)) / total)))
+        pos += len(p)
+    return out
 
 
 _NOISE = {"", ".", "...", "you", "thanks for watching!", "thank you for watching."}

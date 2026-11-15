@@ -75,13 +75,13 @@ class App:
         return f"{self.status}\n\nMic: {'#' * bars}{'.' * (20 - bars)}  ({talk})"
 
     # -- actions
-    def start(self, mode, voice, src, translate, clone, model, inp, out, pitch, speed, effect, silence):
+    def start(self, mode, voice, src, translate, clone, follow, model, inp, out, pitch, speed, effect, silence):
         with self.lock:
             if self.pipeline and self.pipeline.running:
                 self.pipeline.stop()
             settings = Settings(
                 mode="fx" if mode == MODE_FX else "ai", voice=voice,
-                source_language=SOURCE_LANGS.get(src), translate=translate, clone_voice=clone,
+                source_language=SOURCE_LANGS.get(src), translate=translate, clone_voice=clone, follow_delivery=follow,
                 whisper_model=model, input_device=inp, output_device=out, pitch=pitch,
                 speed=speed, effect=effect, silence_ms=int(silence),
             )
@@ -100,11 +100,11 @@ class App:
                 self.pipeline = None
         return self.status
 
-    def live_update(self, pitch, speed, effect, voice, translate, src, clone):
+    def live_update(self, pitch, speed, effect, voice, translate, src, clone, follow):
         if self.pipeline and self.pipeline.running:
             self.pipeline.update(pitch=pitch, speed=speed, effect=effect, voice=voice,
                                  translate=translate, source_language=SOURCE_LANGS.get(src),
-                                 clone_voice=clone)
+                                 clone_voice=clone, follow_delivery=follow)
 
     def enroll(self, recording):
         """Save the user's own voice sample recorded from the microphone."""
@@ -185,6 +185,7 @@ def build(app: App | None = None) -> gr.Blocks:
                     src = gr.Dropdown(list(SOURCE_LANGS), value="Auto-detect", label="I am speaking")
                     translate = gr.Checkbox(True, label="Translate to the voice's language")
                     clone = gr.Checkbox(False, label="Sound like me (my own voice, +~1-2 s)")
+                    follow = gr.Checkbox(True, label="Follow my pitch, tone & pace (per phrase)")
                     model = gr.Dropdown(MODEL_SIZES, value="tiny", label="Recognition model (tiny = fastest)")
                 with gr.Row():
                     inp = gr.Dropdown(["default"] + inputs, value="default", label="Microphone")
@@ -218,10 +219,10 @@ def build(app: App | None = None) -> gr.Blocks:
             lambda lang: gr.update(choices=app.voices_for(lang), value=app.voices_for(lang)[0][1]),
             language, voice,
         )
-        all_inputs = [mode, voice, src, translate, clone, model, inp, out, pitch, speed, effect, silence]
+        all_inputs = [mode, voice, src, translate, clone, follow, model, inp, out, pitch, speed, effect, silence]
         start.click(app.start, all_inputs, status)
         stop.click(app.stop, None, status)
-        live = [pitch, speed, effect, voice, translate, src, clone]
+        live = [pitch, speed, effect, voice, translate, src, clone, follow]
         for c in live:
             c.change(app.live_update, live, None)
         say.click(app.preview, [text, voice, pitch, speed, effect, translate, clone], [audio, said])

@@ -65,3 +65,42 @@ def test_enrollment_rejects_short_sample(tmp_path, monkeypatch):
         save_enrollment(np.zeros(SR * 3, np.float32), SR)
     path = save_enrollment(tone(150, 10.0), SR)
     assert path.exists() and path.parent == tmp_path
+
+
+def voiced_like(f0_start, f0_end, seconds, sr=SR):
+    """Glottal-pulse-like signal (harmonics) with a gliding pitch."""
+    n = int(sr * seconds)
+    f0 = np.linspace(f0_start, f0_end, n)
+    phase = 2 * np.pi * np.cumsum(f0) / sr
+    sig = sum(np.sin(k * phase) / k for k in range(1, 12))
+    return (0.2 * sig).astype(np.float32)
+
+
+def test_pitch_tracker_and_ending():
+    from voxshift import prosody
+
+    d = prosody.analyze(voiced_like(140, 200, 1.5), SR)
+    assert abs(100 * 2 ** (d.pitch / 12) - 168) < 15
+    assert d.ending > 1.0  # rising
+    assert prosody.analyze(voiced_like(200, 140, 1.5), SR).ending < -1.0
+
+
+def test_psola_moves_pitch_keeps_length():
+    from voxshift import prosody
+
+    x = voiced_like(150, 150, 1.0)
+    st, _ = prosody.track(x, SR)
+    n = len(st)
+    y = prosody.psola(x, SR, st, np.full(n, 2 ** (4 / 12)), np.ones(n))
+    assert abs(len(y) - len(x)) < 0.05 * len(x)
+    got = 100 * 2 ** (prosody.analyze(y, SR).pitch / 12)
+    assert abs(got - 150 * 2 ** (4 / 12)) < 10
+
+
+def test_match_follows_speaker_level():
+    from voxshift import prosody
+
+    you = prosody.analyze(voiced_like(110, 120, 1.2), SR)
+    synth = voiced_like(200, 210, 1.2)
+    out = prosody.match(synth, SR, you)
+    assert abs(prosody.analyze(out, SR).pitch - you.pitch) < 1.5

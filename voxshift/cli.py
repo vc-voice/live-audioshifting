@@ -52,6 +52,7 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--source", help="language you speak (default: auto-detect)")
     r.add_argument("--no-translate", action="store_true")
     r.add_argument("--clone", action="store_true", help="sound like your recorded voice (see 'enroll')")
+    r.add_argument("--no-follow", action="store_true", help="don't copy your pitch/intonation/pace")
     r.add_argument("--model", default="tiny")
     r.add_argument("--input")
     r.add_argument("--output")
@@ -111,7 +112,7 @@ def main(argv: list[str] | None = None) -> None:
 
         settings = Settings(
             mode=args.mode, voice=args.voice, source_language=args.source,
-            translate=not args.no_translate, clone_voice=args.clone, whisper_model=args.model,
+            translate=not args.no_translate, clone_voice=args.clone, follow_delivery=not args.no_follow, whisper_model=args.model,
             input_device=_match_device(args.input, False), output_device=_match_device(args.output, True),
             pitch=args.pitch, speed=args.speed, effect=args.effect,
         )
