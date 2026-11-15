@@ -123,9 +123,10 @@ def build(app: App | None = None) -> gr.Blocks:
     langs = app.languages()
     default_lang = "English" if "English" in langs else langs[0]
     default_voices = app.voices_for(default_lang)
-    default_voice = next((k for _, k in default_voices if k.startswith("en_GB")), default_voices[0][1])
+    keys = [k for _, k in default_voices]
+    default_voice = "en_GB-alan-medium" if "en_GB-alan-medium" in keys else keys[0]
 
-    with gr.Blocks(title="VoxShift - live voice & accent changer") as demo:
+    with gr.Blocks(title="VoxShift - live voice & accent changer", analytics_enabled=False) as demo:
         gr.Markdown(
             "# VoxShift\nLive voice, accent and language changer. Speak, pause, and your words "
             "come out in the chosen accent or language. Route **Output** to a virtual cable "
