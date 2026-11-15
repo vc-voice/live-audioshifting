@@ -15,7 +15,8 @@ dependencies = [
   "faster-whisper",
   "argostranslate",
   "piper-tts",
-  "gradio>=4.40",
+  "fastapi",
+  "uvicorn",
 ]
 
 [project.optional-dependencies]
@@ -29,3 +30,6 @@ voxshift = "voxshift.cli:main"
 
 [tool.setuptools]
 packages = ["voxshift"]
+
+[tool.setuptools.package-data]
+voxshift = ["static/*"]

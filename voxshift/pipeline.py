@@ -75,6 +75,11 @@ class VoicePipeline:
         self._translator = None
         self._cloner = None
         self._shifter: effects.StreamingPitchShifter | None = None
+        # Live meters (RMS, 0..1) and what the pipeline is doing right now.
+        self.in_level = 0.0
+        self.out_level = 0.0
+        self._busy = False
+        self._out_until = 0.0
 
     # ---------------------------------------------------------------- control
     @property
@@ -83,7 +88,22 @@ class VoicePipeline:
 
     @property
     def level(self) -> float:
-        return self.segmenter.level if self.segmenter else 0.0
+        return self.in_level
+
+    @property
+    def state(self) -> str:
+        """idle | listening | hearing | thinking | speaking"""
+        if not self.running:
+            return "idle"
+        if time.time() < self._out_until:
+            return "speaking"
+        if self._busy or not self._utt_q.empty():
+            return "thinking"
+        if self.segmenter is not None and self.segmenter.in_speech:
+            return "hearing"
+        if self.settings.mode == "fx" and self.in_level > 0.02:
+            return "speaking"
+        return "listening"
 
     def start(self) -> None:
         if self.running:
@@ -105,6 +125,7 @@ class VoicePipeline:
         for t in self._threads:
             t.join(timeout=3)
         self._threads = []
+        self.in_level = self.out_level = 0.0
         self._emit("status", "Stopped")
 
     def update(self, **changes) -> None:
@@ -140,10 +161,12 @@ class VoicePipeline:
 
         def callback(indata, outdata, frames, t, status):
             mono = indata[:, 0]
+            self.in_level = float(np.sqrt(np.mean(mono * mono)))
             processed = self._shifter.process(mono, robot_voice=self.settings.effect == "robot")
             if self.settings.effect == "radio":
                 processed = np.tanh(processed * 3.0) * 0.6
             outdata[:] = processed.reshape(-1, 1).repeat(outdata.shape[1], axis=1)
+            self.out_level = float(np.sqrt(np.mean(processed * processed)))
 
         self._stream = sd.Stream(
             device=(inp, out), samplerate=rate, channels=(1, 1), dtype="float32",
@@ -195,7 +218,9 @@ class VoicePipeline:
                 block = self._mic_q.get(timeout=0.1)
             except queue.Empty:
                 continue
-            for utt in self.segmenter.feed(block):
+            utts = self.segmenter.feed(block)
+            self.in_level = self.segmenter.level
+            for utt in utts:
                 try:
                     self._utt_q.put_nowait((utt, time.time()))
                 except queue.Full:
@@ -207,11 +232,14 @@ class VoicePipeline:
                 audio, t_end = self._utt_q.get(timeout=0.1)
             except queue.Empty:
                 continue
+            self._busy = True
             try:
                 self.process_utterance(audio, t_end)
             except Exception as exc:  # keep the pipeline alive
                 log.exception("processing failed")
                 self._emit("error", f"{type(exc).__name__}: {exc}")
+            finally:
+                self._busy = False
 
     def process_utterance(self, audio: np.ndarray, t_end: float | None = None) -> tuple[np.ndarray, int] | None:
         """Run one utterance through STT -> translate -> TTS. Also used by tests/CLI."""
@@ -256,12 +284,22 @@ class VoicePipeline:
         out = parse_device(self.settings.output_device)
         rate = device_rate(out, "output")
         with sd.OutputStream(device=out, samplerate=rate, channels=1, dtype="float32") as stream:
+            block = rate // 40  # 25 ms pieces so the output meter moves with the voice
             while not self._stop.is_set():
                 try:
                     wav, src_rate = self._out_q.get(timeout=0.1)
                 except queue.Empty:
+                    self.out_level = 0.0
                     continue
-                stream.write(effects.resample(wav, src_rate, rate).reshape(-1, 1))
+                audio = effects.resample(wav, src_rate, rate)
+                self._out_until = time.time() + len(audio) / rate + 0.1
+                for i in range(0, len(audio), block):
+                    piece = audio[i : i + block]
+                    self.out_level = float(np.sqrt(np.mean(piece * piece)))
+                    stream.write(piece.reshape(-1, 1))
+                    if self._stop.is_set():
+                        break
+                self.out_level = 0.0
 
     # ---------------------------------------------------------------- utils
     def _emit(self, kind: str, message: str = "", **kw) -> None:

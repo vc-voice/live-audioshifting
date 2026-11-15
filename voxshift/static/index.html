@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoxShift</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%237c5cff'/%3E%3Cg stroke='white' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M9 13v6M14 9v14M19 12v8M24 14v4'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f6f6fb;
+  --card: #ffffff;
+  --text: #17171f;
+  --muted: #6b6b7b;
+  --line: #e7e7f0;
+  --soft: #f0f0f7;
+  --you: #0ea5b7;
+  --you-2: #34d3c4;
+  --out: #7c5cff;
+  --out-2: #c06cff;
+  --danger: #e5484d;
+  --ok: #16a34a;
+  --shadow: 0 1px 2px rgba(20,20,40,.04), 0 8px 24px rgba(20,20,40,.06);
+  --radius: 18px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e0e14; --card: #17171f; --text: #ececf3; --muted: #9a9aab; --line: #262632;
+    --soft: #1f1f2a; --you: #22c3d6; --you-2: #5eead4; --out: #9277ff; --out-2: #d08bff;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 30px rgba(0,0,0,.35); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e0e14; --card: #17171f; --text: #ececf3; --muted: #9a9aab; --line: #262632;
+  --soft: #1f1f2a; --you: #22c3d6; --you-2: #5eead4; --out: #9277ff; --out-2: #d08bff;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 30px rgba(0,0,0,.35); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 680px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; letter-spacing: -.01em; }
+.brand svg { width: 30px; height: 30px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+  background: var(--card); box-shadow: var(--shadow); font-size: 13px; color: var(--muted);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.pill[data-state="listening"] .dot { background: var(--you); }
+.pill[data-state="hearing"] .dot { background: var(--you); animation: pulse 1s infinite; }
+.pill[data-state="thinking"] .dot, .pill[data-state="loading"] .dot { background: #f5a524; animation: pulse 1s infinite; }
+.pill[data-state="speaking"] .dot { background: var(--out); animation: pulse .7s infinite; }
+.pill[data-state="recording"] .dot { background: var(--danger); animation: pulse .8s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+.card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; margin-bottom: 14px; }
+
+/* meters */
+.meter { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 12px; }
+.meter + .meter { margin-top: 10px; }
+.meter .who { font-size: 13px; color: var(--muted); line-height: 1.25; }
+.meter .who b { display: block; color: var(--text); font-size: 15px; }
+.meter canvas { width: 100%; height: 64px; display: block; border-radius: 12px; background: var(--soft); }
+.via { margin: 8px 0 8px 104px; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.via svg { width: 14px; height: 14px; flex: none; }
+
+/* start */
+.go { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 0 4px; }
+.big {
+  width: 84px; height: 84px; border-radius: 50%; border: 0; cursor: pointer; color: #fff;
+  background: linear-gradient(135deg, var(--out), var(--out-2));
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--out) 40%, transparent);
+  display: grid; place-items: center; transition: transform .15s ease, box-shadow .2s ease;
+}
+.big:hover { transform: translateY(-1px) scale(1.03); }
+.big:active { transform: scale(.97); }
+.big svg { width: 34px; height: 34px; }
+.big.on { background: linear-gradient(135deg, #ef4444, #f97366); box-shadow: 0 10px 30px rgba(239,68,68,.35); }
+.big:disabled { opacity: .6; cursor: progress; }
+.hint { font-size: 13.5px; color: var(--muted); text-align: center; min-height: 20px; }
+.err { color: var(--danger); font-size: 13px; text-align: center; }
+
+/* fields */
+.row { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
+label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--muted); font-weight: 500; }
+select, input[type="text"] {
+  appearance: none; -webkit-appearance: none; width: 100%; font: inherit; color: var(--text);
+  background: var(--soft); border: 1px solid transparent; border-radius: 12px; padding: 10px 12px;
+  outline: none; transition: border-color .15s;
+}
+select {
+  padding-right: 34px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239a9aab'%3E%3Cpath d='M5.5 7.5 10 12l4.5-4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; background-size: 18px;
+}
+select:focus, input[type="text"]:focus { border-color: var(--out); }
+.title { font-weight: 650; font-size: 14px; margin: 0 0 12px; display: flex; justify-content: space-between; align-items: center; }
+
+.toggles { display: grid; gap: 2px; margin-top: 14px; }
+.tg { display: flex; align-items: center; gap: 12px; padding: 9px 0; cursor: pointer; }
+.tg + .tg { border-top: 1px solid var(--line); }
+.tg .txt { flex: 1; }
+.tg .txt b { font-weight: 550; display: block; }
+.tg .txt small { color: var(--muted); font-size: 12.5px; }
+.sw { position: relative; width: 42px; height: 24px; flex: none; }
+.sw input { opacity: 0; width: 0; height: 0; position: absolute; }
+.sw span { position: absolute; inset: 0; background: var(--line); border-radius: 999px; transition: background .2s; }
+.sw span::after { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .2s; }
+.sw input:checked + span { background: var(--out); }
+.sw input:checked + span::after { transform: translateX(18px); }
+.sw input:focus-visible + span { outline: 2px solid var(--out); outline-offset: 2px; }
+.link { color: var(--out); background: none; border: 0; padding: 0; font: inherit; font-size: 12.5px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+
+/* history */
+.lines { display: grid; gap: 10px; }
+.line { padding: 10px 12px; border-radius: 12px; background: var(--soft); }
+.line .h { color: var(--muted); font-size: 13px; }
+.line .s { font-weight: 550; margin-top: 2px; }
+.line .d { float: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.empty { color: var(--muted); font-size: 13.5px; text-align: center; padding: 6px 0; }
+
+/* collapsibles */
+details.card { padding: 0; }
+details.card > summary {
+  list-style: none; cursor: pointer; padding: 16px 18px; font-weight: 650; font-size: 14px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary::after { content: ""; width: 9px; height: 9px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform .2s; margin-right: 4px; }
+details.card[open] > summary::after { transform: rotate(-135deg); }
+details.card > .in { padding: 0 18px 18px; display: grid; gap: 12px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.range { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--muted); font-weight: 500; }
+.range .v { float: right; color: var(--text); font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 100%; accent-color: var(--out); }
+.note { font-size: 12.5px; color: var(--muted); background: var(--soft); border-radius: 12px; padding: 10px 12px; }
+.note b { color: var(--text); }
+
+.btn {
+  font: inherit; font-weight: 600; border: 0; border-radius: 12px; padding: 10px 16px; cursor: pointer;
+  background: var(--soft); color: var(--text); transition: filter .15s;
+}
+.btn:hover { filter: brightness(.97); }
+.btn.primary { background: var(--out); color: #fff; }
+.btn:disabled { opacity: .55; cursor: default; }
+.say { display: flex; gap: 8px; }
+.say input { flex: 1; }
+.progress { height: 6px; border-radius: 999px; background: var(--soft); overflow: hidden; }
+.progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--you), var(--you-2)); transition: width .1s linear; }
+blockquote { margin: 0; padding: 10px 12px; border-left: 3px solid var(--you); background: var(--soft); border-radius: 0 12px 12px 0; font-size: 14px; }
+
+@media (max-width: 520px) {
+  .row, .grid2 { grid-template-columns: 1fr; }
+  .meter { grid-template-columns: 70px 1fr; }
+  .via { margin-left: 82px; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c5cff"/><stop offset="1" stop-color="#c06cff"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#g)"/><g stroke="#fff" stroke-width="3" stroke-linecap="round"><path d="M9 13v6M14 9v14M19 12v8M24 14v4"/></g></svg>
+      VoxShift
+    </div>
+    <div class="pill" id="pill" data-state="idle"><span class="dot"></span><span id="pillText">Ready</span></div>
+  </header>
+
+  <section class="card" aria-label="Live levels">
+    <div class="meter">
+      <div class="who"><b>You</b><span id="inName">Microphone</span></div>
+      <canvas id="mIn" aria-label="Your voice level"></canvas>
+    </div>
+    <div class="via" id="via">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v12M3.5 9.5 8 14l4.5-4.5"/></svg>
+      <span id="viaText">British accent</span>
+    </div>
+    <div class="meter">
+      <div class="who"><b>Output</b><span id="outName">Speakers</span></div>
+      <canvas id="mOut" aria-label="Output voice level"></canvas>
+    </div>
+  </section>
+
+  <section class="go">
+    <button class="big" id="go" aria-label="Start">
+      <svg id="goIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </button>
+    <div class="hint" id="hint">Press start, say something, then pause.</div>
+    <div class="err" id="err"></div>
+  </section>
+
+  <section class="card">
+    <div class="title">Speak as</div>
+    <div class="row">
+      <label class="f">Language<select id="language"></select></label>
+      <label class="f">Accent &amp; voice<select id="voice"></select></label>
+    </div>
+    <div class="toggles">
+      <label class="tg">
+        <span class="txt"><b>Sound like me</b><small id="cloneHint">Use your own voice tone</small></span>
+        <span class="sw"><input type="checkbox" id="clone_voice"><span></span></span>
+      </label>
+      <label class="tg">
+        <span class="txt"><b>Follow my tone</b><small>Copy your pitch, questions and pace</small></span>
+        <span class="sw"><input type="checkbox" id="follow_delivery" checked><span></span></span>
+      </label>
+      <label class="tg">
+        <span class="txt"><b>Translate</b><small>Say it in the voice's language</small></span>
+        <span class="sw"><input type="checkbox" id="translate" checked><span></span></span>
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="title">Latest</div>
+    <div class="lines" id="lines"><div class="empty">What you say will show up here.</div></div>
+  </section>
+
+  <details class="card" id="myVoice">
+    <summary>My voice</summary>
+    <div class="in">
+      <div class="note">Record about 15 seconds of <b>your own</b> voice so “Sound like me” can match it. Only your microphone is used. Please don't use this to imitate other people.</div>
+      <blockquote>“Hi, this is my voice. I'm recording a short sample so the app can learn how I sound. The weather is nice today, and later I'm going to meet a few friends for dinner. One, two, three, four, five.”</blockquote>
+      <div class="progress"><i id="recBar"></i></div>
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+        <button class="btn primary" id="rec">Record 15 seconds</button>
+        <span class="hint" id="recMsg" style="text-align:left"></span>
+      </div>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Try it by typing</summary>
+    <div class="in">
+      <div class="say">
+        <input type="text" id="sayText" value="Hello, how are you today?" aria-label="Text to speak">
+        <button class="btn primary" id="sayBtn">Play</button>
+      </div>
+      <div class="hint" id="sayOut" style="text-align:left"></div>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Settings</summary>
+    <div class="in">
+      <div class="grid2">
+        <label class="f">I speak<select id="source_language"></select></label>
+        <label class="f">Speech recognition<select id="whisper_model"></select></label>
+        <label class="f">Microphone<select id="input_device"></select></label>
+        <label class="f">Output<select id="output_device"></select></label>
+      </div>
+      <div class="note" id="cableNote"></div>
+      <div class="grid2">
+        <label class="range">Pitch <span><span class="v" id="pitchV">0</span></span><input type="range" id="pitch" min="-12" max="12" step="0.5" value="0"></label>
+        <label class="range">Speed <span><span class="v" id="speedV">1.00×</span></span><input type="range" id="speed" min="0.6" max="1.6" step="0.05" value="1"></label>
+        <label class="range">Pause before speaking <span><span class="v" id="silenceV">450 ms</span></span><input type="range" id="silence_ms" min="250" max="1500" step="50" value="450"></label>
+        <label class="f">Effect<select id="effect"></select></label>
+      </div>
+      <label class="tg" style="border-top:1px solid var(--line); padding-top:12px">
+        <span class="txt"><b>Instant mode</b><small>No AI: just pitch and effects on your live voice (~40 ms)</small></span>
+        <span class="sw"><input type="checkbox" id="instant"><span></span></span>
+      </label>
+    </div>
+  </details>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem("voxshift:" + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem("voxshift:" + k, JSON.stringify(v)); } catch {} },
+  };
+  const RESTART_KEYS = ["source_language", "whisper_model", "input_device", "output_device", "silence_ms", "instant"];
+  let opts = null, running = false, lastVersion = -1, lastState = "idle";
+
+  // ---------------------------------------------------------------- meters
+  class Meter {
+    constructor(canvas, a, b) {
+      this.c = canvas; this.ctx = canvas.getContext("2d"); this.a = a; this.b = b;
+      this.hist = new Array(56).fill(0); this.target = 0; this.cur = 0;
+    }
+    push(rms) {
+      const db = 20 * Math.log10(rms + 1e-6);
+      this.target = Math.max(0, Math.min(1, (db + 56) / 44));
+    }
+    frame() {
+      const c = this.c, dpr = window.devicePixelRatio || 1;
+      const w = c.clientWidth, h = c.clientHeight;
+      if (c.width !== w * dpr || c.height !== h * dpr) { c.width = w * dpr; c.height = h * dpr; }
+      this.cur += (this.target - this.cur) * (this.target > this.cur ? 0.6 : 0.18);
+      // scroll one bar every other frame (~15/s) so a whole sentence stays visible
+      this.tick = (this.tick || 0) + 1;
+      if (this.tick % 2 === 0) { this.hist.push(this.cur); this.hist.shift(); }
+      else this.hist[this.hist.length - 1] = Math.max(this.hist[this.hist.length - 1], this.cur);
+      const ctx = this.ctx, n = this.hist.length;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      const css = getComputedStyle(document.documentElement);
+      const g = ctx.createLinearGradient(0, 0, w, 0);
+      g.addColorStop(0, css.getPropertyValue(this.a).trim());
+      g.addColorStop(1, css.getPropertyValue(this.b).trim());
+      ctx.fillStyle = g;
+      const gap = 3, bw = Math.max(2, (w - gap * (n - 1)) / n);
+      for (let i = 0; i < n; i++) {
+        const v = this.hist[i];
+        const bh = Math.max(3, v * (h - 12));
+        const x = i * (bw + gap), y = (h - bh) / 2;
+        ctx.globalAlpha = 0.35 + 0.65 * (i / n);
+        roundRect(ctx, x, y, bw, bh, Math.min(bw / 2, 3));
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); ctx.fill();
+  }
+  const mIn = new Meter($("mIn"), "--you", "--you-2");
+  const mOut = new Meter($("mOut"), "--out", "--out-2");
+  let localOut = null; // level from audio played in this page (Try it by typing)
+  let lastTick = 0;
+  function loop(t) {
+    if (t - lastTick > 33) { mIn.frame(); mOut.frame(); lastTick = t; }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  // ---------------------------------------------------------------- options
+  function fill(sel, items, value) {
+    sel.innerHTML = "";
+    for (const [v, label] of items) { const o = document.createElement("option"); o.value = v; o.textContent = label; sel.append(o); }
+    if (value != null && items.some(([v]) => v === value)) sel.value = value;
+  }
+  const deviceName = (label) => label === "default" ? "Default" : label.replace(/^\d+:\s*/, "").replace(/\s*\([^)]*\)\s*$/, "");
+
+  function currentLanguage() { return opts.languages.find((l) => l.name === $("language").value) || opts.languages[0]; }
+  function fillVoices(keep) {
+    const lang = currentLanguage();
+    const items = lang.voices.map((v) => [v.key, `${v.accent} · ${cap(v.speaker)}${v.quality === "high" ? " ✦" : ""}`]);
+    const pref = keep && lang.voices.some((v) => v.key === keep) ? keep
+      : (lang.voices.find((v) => v.quality === "medium") || lang.voices[0]).key;
+    fill($("voice"), items, pref);
+  }
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+  function describe() {
+    const lang = currentLanguage();
+    const v = lang.voices.find((x) => x.key === $("voice").value);
+    const instant = $("instant").checked;
+    $("viaText").textContent = instant ? "Instant mode · pitch & effects"
+      : `${v ? v.accent : lang.name} · ${cap(v ? v.speaker : "")}${$("clone_voice").checked ? " · your voice" : ""}${$("translate").checked ? ` · in ${lang.name}` : ""}`;
+    $("inName").textContent = deviceName($("input_device").value);
+    $("outName").textContent = deviceName($("output_device").value);
+    const out = $("output_device").value.toLowerCase();
+    $("cableNote").innerHTML = out.includes("cable")
+      ? "Output goes to the virtual cable. In Discord or Zoom, pick <b>CABLE Output</b> as your microphone."
+      : opts.cable ? "To use this as a mic in Discord or Zoom, set Output to <b>CABLE Input</b>."
+      : "To use this as a mic in Discord or Zoom, install the free <b>VB-Audio Cable</b>, then set Output to <b>CABLE Input</b>.";
+  }
+
+  function collect() {
+    return {
+      mode: $("instant").checked ? "fx" : "ai",
+      voice: $("voice").value,
+      source_language: $("source_language").value,
+      translate: $("translate").checked,
+      clone_voice: $("clone_voice").checked,
+      follow_delivery: $("follow_delivery").checked,
+      whisper_model: $("whisper_model").value,
+      input_device: $("input_device").value,
+      output_device: $("output_device").value,
+      pitch: +$("pitch").value, speed: +$("speed").value,
+      effect: $("effect").value, silence_ms: +$("silence_ms").value,
+    };
+  }
+  function saveAll() {
+    const o = collect(); o.language = $("language").value; o.instant = $("instant").checked;
+    store.set("settings", o);
+  }
+  function labels() {
+    const p = +$("pitch").value;
+    $("pitchV").textContent = p === 0 ? "0" : (p > 0 ? "+" : "") + p;
+    $("speedV").textContent = (+$("speed").value).toFixed(2) + "×";
+    $("silenceV").textContent = $("silence_ms").value + " ms";
+  }
+
+  async function post(url, body) {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+    if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch {} throw new Error(m); }
+    return r;
+  }
+
+  function onChange(e) {
+    labels(); describe(); saveAll();
+    if (e && e.target.id === "clone_voice" && $("clone_voice").checked && !opts.enrolled) {
+      $("myVoice").open = true; $("myVoice").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    if (!running) return;
+    if (e && RESTART_KEYS.includes(e.target.id)) post("/api/start", collect()).catch(showErr);
+    else post("/api/update", collect()).catch(showErr);
+  }
+  const showErr = (e) => { $("err").textContent = e.message || String(e); };
+
+  async function init() {
+    opts = await (await fetch("/api/options")).json();
+    const saved = store.get("settings", {});
+    fill($("language"), opts.languages.map((l) => [l.name, l.name]), saved.language || "English");
+    fillVoices(saved.voice || "en_GB-alan-medium");
+    fill($("source_language"), Object.entries(opts.spoken), saved.source_language || "auto");
+    fill($("whisper_model"), opts.models.map((m) => [m, { tiny: "Tiny · fastest", base: "Base · balanced", small: "Small · accurate" }[m] || cap(m)]), saved.whisper_model || "tiny");
+    fill($("input_device"), [["default", "Default microphone"], ...opts.inputs.map((d) => [d, deviceName(d)])], saved.input_device || "default");
+    const outs = [["default", "Default speakers"], ...opts.outputs.map((d) => [d, deviceName(d)])];
+    fill($("output_device"), outs, saved.output_device || opts.cable || "default");
+    fill($("effect"), opts.effects.map((e) => [e, cap(e)]), saved.effect || "none");
+    for (const k of ["translate", "clone_voice", "follow_delivery", "instant"]) if (k in saved) $(k).checked = saved[k];
+    for (const k of ["pitch", "speed", "silence_ms"]) if (k in saved) $(k).value = saved[k];
+    if (!opts.enrolled) { $("clone_voice").checked = false; $("cloneHint").innerHTML = 'Needs a voice sample · <button class="link" id="goRec" type="button">record it</button>'; }
+    labels(); describe();
+
+    $("language").addEventListener("change", (e) => { fillVoices(); onChange(e); });
+    for (const id of ["voice", "translate", "clone_voice", "follow_delivery", "source_language", "whisper_model", "input_device", "output_device", "effect", "instant"])
+      $(id).addEventListener("change", onChange);
+    for (const id of ["pitch", "speed", "silence_ms"]) {
+      $(id).addEventListener("input", labels);
+      $(id).addEventListener("change", onChange);
+    }
+    document.addEventListener("click", (e) => {
+      if (e.target.id === "goRec") { e.preventDefault(); $("myVoice").open = true; $("myVoice").scrollIntoView({ behavior: "smooth", block: "center" }); }
+    });
+    loadHistory();
+    connect();
+  }
+
+  // ---------------------------------------------------------------- start / stop
+  $("go").addEventListener("click", async () => {
+    $("err").textContent = "";
+    try {
+      if (running) { await post("/api/stop"); setRunning(false); }
+      else { await post("/api/start", collect()); setRunning(true); }
+    } catch (e) { showErr(e); }
+  });
+  function setRunning(on) {
+    running = on;
+    $("go").classList.toggle("on", on);
+    $("go").setAttribute("aria-label", on ? "Stop" : "Start");
+    $("goIcon").innerHTML = on
+      ? '<rect x="7" y="7" width="10" height="10" rx="2.5" fill="currentColor" stroke="none"/>'
+      : '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>';
+  }
+
+  // ---------------------------------------------------------------- live
+  const STATE_TEXT = {
+    idle: ["Ready", "Press start, say something, then pause."],
+    loading: ["Loading", "Getting the voice models ready…"],
+    listening: ["Listening", "Go ahead, speak. Pause when you're done."],
+    hearing: ["Hearing you", "Keep going… pause to send."],
+    thinking: ["Working", "Turning it into the new voice…"],
+    speaking: ["Speaking", "Playing your new voice."],
+    recording: ["Recording", "Read the text above in your normal voice."],
+  };
+  function connect() {
+    const es = new EventSource("/api/live");
+    es.onmessage = (m) => {
+      const d = JSON.parse(m.data);
+      mIn.push(d.in);
+      mOut.push(localOut != null ? localOut : d.out);
+      if (d.state !== lastState) {
+        lastState = d.state;
+        const [p, h] = STATE_TEXT[d.state] || [d.state, ""];
+        $("pill").dataset.state = d.state; $("pillText").textContent = p;
+        $("hint").textContent = d.state === "loading" && d.status ? d.status : h;
+        if (d.state === "idle" && running && !d.error) setRunning(false);
+        if (d.state !== "idle" && d.state !== "recording" && !running) setRunning(true);
+        $("go").disabled = d.state === "loading" || d.state === "recording";
+      } else if (d.state === "loading") $("hint").textContent = d.status || STATE_TEXT.loading[1];
+      $("err").textContent = d.error || "";
+      if (d.error && running && d.state === "idle") setRunning(false);
+      const en = d.enroll;
+      $("recBar").style.width = (en.progress * 100).toFixed(1) + "%";
+      $("rec").disabled = en.active;
+      $("rec").textContent = en.active ? `Recording… ${Math.ceil((1 - en.progress) * 15)}s` : "Record 15 seconds";
+      if (en.message) $("recMsg").textContent = en.message;
+      if (d.version !== lastVersion) { lastVersion = d.version; loadHistory(); if (!en.active && en.message.startsWith("Saved")) markEnrolled(); }
+    };
+    es.onerror = () => { $("pillText").textContent = "Reconnecting…"; };
+  }
+  function markEnrolled() {
+    if (opts.enrolled) return;
+    opts.enrolled = true;
+    $("cloneHint").textContent = "Use your own voice tone";
+    $("clone_voice").checked = true; onChange();
+  }
+  async function loadHistory() {
+    const h = await (await fetch("/api/history")).json();
+    const el = $("lines");
+    if (!h.length) { el.innerHTML = '<div class="empty">What you say will show up here.</div>'; return; }
+    el.innerHTML = "";
+    for (const x of h.slice(0, 4)) {
+      const div = document.createElement("div"); div.className = "line";
+      const d = document.createElement("span"); d.className = "d"; d.textContent = x.delay.toFixed(1) + " s";
+      const a = document.createElement("div"); a.className = "h"; a.textContent = x.heard;
+      const b = document.createElement("div"); b.className = "s"; b.textContent = x.spoken;
+      div.append(d, a, b); el.append(div);
+    }
+  }
+
+  // ---------------------------------------------------------------- my voice
+  $("rec").addEventListener("click", async () => {
+    $("recMsg").textContent = "";
+    try { await post("/api/enroll", { seconds: 15, input_device: $("input_device").value }); }
+    catch (e) { $("recMsg").textContent = e.message; }
+  });
+
+  // ---------------------------------------------------------------- try typing
+  let actx = null;
+  $("sayBtn").addEventListener("click", async () => {
+    const btn = $("sayBtn"); btn.disabled = true; $("sayOut").textContent = "Making it…";
+    try {
+      const r = await post("/api/say", { text: $("sayText").value, options: collect() });
+      const spoken = JSON.parse(r.headers.get("X-Spoken-Text") || '""');
+      $("sayOut").textContent = spoken;
+      const buf = await r.arrayBuffer();
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      const audio = await actx.decodeAudioData(buf);
+      const src = actx.createBufferSource(); src.buffer = audio;
+      const an = actx.createAnalyser(); an.fftSize = 1024;
+      src.connect(an); an.connect(actx.destination);
+      const data = new Float32Array(an.fftSize);
+      const tick = () => {
+        if (localOut === null) return;
+        an.getFloatTimeDomainData(data);
+        let s = 0; for (const v of data) s += v * v;
+        localOut = Math.sqrt(s / data.length);
+        requestAnimationFrame(tick);
+      };
+      localOut = 0; src.onended = () => { localOut = null; }; src.start(); tick();
+    } catch (e) { $("sayOut").textContent = e.message; }
+    finally { btn.disabled = false; }
+  });
+  $("sayText").addEventListener("keydown", (e) => { if (e.key === "Enter") $("sayBtn").click(); });
+
+  init().catch(showErr);
+})();
+</script>
+</body>
+</html>

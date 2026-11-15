@@ -13,7 +13,7 @@ in Discord, Zoom, Meet, OBS or games.
 | [OpenVoice V2](https://github.com/myshell-ai/OpenVoice) (optional) | Voice cloning: makes the output sound like **you** |
 | [Piper](https://github.com/OHF-Voice/piper1-gpl) + [piper-voices](https://huggingface.co/rhasspy/piper-voices) | Text-to-speech in 100+ voices over 40+ languages and regional accents |
 | [sounddevice](https://github.com/spatialaudio/python-sounddevice) / PortAudio | Live mic capture and playback |
-| [Gradio](https://github.com/gradio-app/gradio) | Control panel in the browser |
+| [FastAPI](https://github.com/fastapi/fastapi) | Local control panel with live meters |
 
 Everything runs locally. After the first download of models, no internet is needed.
 
@@ -106,7 +106,8 @@ mic (16 kHz) ─► energy VAD segmenter ─► faster-whisper ─► Argos Tran
 - `voxshift/clone.py`: OpenVoice V2 tone-colour converter (decoder runs in ONNX Runtime on CPU)
 - `voxshift/effects.py`: resampling, pitch shift, streaming pitch shifter, robot and radio effects
 - `voxshift/pipeline.py`: threads that tie it all together
-- `voxshift/ui.py`, `cli.py`: interfaces
+- `voxshift/web.py` + `static/index.html`: control panel (live meters for your voice and the output)
+- `voxshift/cli.py`: command line
 
 ## Roadmap / contributing
 

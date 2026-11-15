@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     if args.cmd in (None, "ui"):
-        from .ui import main as ui_main
+        from .web import main as ui_main
 
         if args.cmd is None:
             ui_main()
