@@ -142,7 +142,7 @@ def build(app: App | None = None) -> gr.Blocks:
                 with gr.Row():
                     src = gr.Dropdown(list(SOURCE_LANGS), value="Auto-detect", label="I am speaking")
                     translate = gr.Checkbox(True, label="Translate to the voice's language")
-                    model = gr.Dropdown(MODEL_SIZES, value="base", label="Recognition model")
+                    model = gr.Dropdown(MODEL_SIZES, value="tiny", label="Recognition model (tiny = fastest)")
                 with gr.Row():
                     inp = gr.Dropdown(["default"] + inputs, value="default", label="Microphone")
                     out = gr.Dropdown(["default"] + outputs, value=cable or "default",
@@ -151,7 +151,7 @@ def build(app: App | None = None) -> gr.Blocks:
                     pitch = gr.Slider(-12, 12, 0, step=0.5, label="Pitch (semitones)")
                     speed = gr.Slider(0.5, 2.0, 1.0, step=0.05, label="Speed")
                     effect = gr.Dropdown(effects.EFFECTS, value="none", label="Effect")
-                    silence = gr.Slider(250, 1500, 600, step=50, label="Pause before speaking (ms)")
+                    silence = gr.Slider(250, 1500, 450, step=50, label="Pause before speaking (ms)")
                 with gr.Row():
                     start = gr.Button("Start", variant="primary")
                     stop = gr.Button("Stop", variant="stop")

@@ -35,13 +35,13 @@ class Settings:
     voice: str = "en_GB-alan-medium"  # Piper voice key: language + accent + speaker
     source_language: str | None = None  # None = auto-detect
     translate: bool = True  # translate into the voice's language when they differ
-    whisper_model: str = "base"
+    whisper_model: str = "tiny"
     input_device: str | int | None = None
     output_device: str | int | None = None
     pitch: float = 0.0  # semitones
     speed: float = 1.0  # >1 faster
     effect: str = "none"
-    silence_ms: int = 600
+    silence_ms: int = 450
     sensitivity: float = 3.0
 
 
@@ -145,6 +145,11 @@ class VoicePipeline:
         self._emit("status", f"Loading voice '{s.voice}'...")
         self._tts = TextToSpeech(s.voice)
         self._translator = Translator()
+        self._emit("status", "Warming up...")
+        self._stt.warm_up()
+        self._tts.synthesize("ok")
+        if s.translate and s.source_language and s.source_language != self._tts.language:
+            self._translator.translate("hello", s.source_language, self._tts.language)
         self.segmenter = UtteranceSegmenter(
             sample_rate=STT_RATE, silence_ms=s.silence_ms, sensitivity=s.sensitivity
         )
@@ -198,14 +203,18 @@ class VoicePipeline:
         text = heard.text
         if s.translate and heard.language != target:
             text = self._translator.translate(text, heard.language, target)
-        wav, rate = self._tts.synthesize(text, speed=s.speed)
-        wav = effects.apply_effects(wav, rate, pitch=s.pitch, effect=s.effect)
-        self._out_q.put((wav, rate))
+        # Queue each sentence for playback as soon as it is synthesized.
+        parts, rate, first_audio = [], self._tts.sample_rate, None
+        for wav, rate in self._tts.synthesize_stream(text, speed=s.speed):
+            wav = effects.apply_effects(wav, rate, pitch=s.pitch, effect=s.effect)
+            self._out_q.put((wav, rate))
+            parts.append(wav)
+            first_audio = first_audio or time.time()
         self._emit(
             "utterance", heard=heard.text, heard_language=heard.language, spoken=text,
-            latency=time.time() - t_end,
+            latency=(first_audio or time.time()) - t_end,
         )
-        return wav, rate
+        return (np.concatenate(parts) if parts else np.zeros(0, np.float32)), rate
 
     def _playback_loop(self) -> None:
         out = parse_device(self.settings.output_device)

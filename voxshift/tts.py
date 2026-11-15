@@ -36,13 +36,20 @@ class TextToSpeech:
     def sample_rate(self) -> int:
         return int(self._voice.config.sample_rate)
 
-    def synthesize(self, text: str, speed: float = 1.0) -> tuple[np.ndarray, int]:
+    def synthesize_stream(self, text: str, speed: float = 1.0):
+        """Yield (audio, rate) one sentence at a time so playback can start early."""
         from piper import SynthesisConfig
 
         cfg = SynthesisConfig(length_scale=1.0 / max(0.25, speed))
         with self._lock:
-            chunks = [c.audio_float_array.astype(np.float32).reshape(-1)
-                      for c in self._voice.synthesize(text, syn_config=cfg)]
-            rate = self.sample_rate
+            voice, rate = self._voice, self.sample_rate
+        for chunk in voice.synthesize(text, syn_config=cfg):
+            yield chunk.audio_float_array.astype(np.float32).reshape(-1), rate
+
+    def synthesize(self, text: str, speed: float = 1.0) -> tuple[np.ndarray, int]:
+        rate = self.sample_rate
+        chunks = []
+        for audio, rate in self.synthesize_stream(text, speed):
+            chunks.append(audio)
         audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
         return audio, rate

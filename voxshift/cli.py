@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--voice", default="en_GB-alan-medium")
     r.add_argument("--source", help="language you speak (default: auto-detect)")
     r.add_argument("--no-translate", action="store_true")
-    r.add_argument("--model", default="base")
+    r.add_argument("--model", default="tiny")
     r.add_argument("--input")
     r.add_argument("--output")
     r.add_argument("--pitch", type=float, default=0.0)
