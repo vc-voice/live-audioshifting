@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
+
+# Argos' default sentence splitter (Stanza) loads a PyTorch model per language,
+# hundreds of MB each. MiniSBD is tiny and plenty for short spoken phrases.
+os.environ.setdefault("ARGOS_CHUNK_TYPE", "MINISBD")
 
 log = logging.getLogger(__name__)
 for _noisy in ("argostranslate", "argos-translate", "stanza"):

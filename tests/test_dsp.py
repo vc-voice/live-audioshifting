@@ -53,3 +53,15 @@ def test_streaming_pitch_shifter():
 
 def test_resample_length():
     assert len(effects.resample(np.zeros(22050, np.float32), 22050, 48000)) == 48000
+
+
+def test_enrollment_rejects_short_sample(tmp_path, monkeypatch):
+    import pytest
+
+    monkeypatch.setenv("VOXSHIFT_HOME", str(tmp_path))
+    from voxshift.clone import save_enrollment
+
+    with pytest.raises(ValueError):
+        save_enrollment(np.zeros(SR * 3, np.float32), SR)
+    path = save_enrollment(tone(150, 10.0), SR)
+    assert path.exists() and path.parent == tmp_path

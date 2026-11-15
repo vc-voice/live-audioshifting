@@ -35,6 +35,7 @@ class Settings:
     voice: str = "en_GB-alan-medium"  # Piper voice key: language + accent + speaker
     source_language: str | None = None  # None = auto-detect
     translate: bool = True  # translate into the voice's language when they differ
+    clone_voice: bool = False  # re-colour the output with your own recorded voice
     whisper_model: str = "tiny"
     input_device: str | int | None = None
     output_device: str | int | None = None
@@ -70,6 +71,7 @@ class VoicePipeline:
         self._stt = None
         self._tts = None
         self._translator = None
+        self._cloner = None
         self._shifter: effects.StreamingPitchShifter | None = None
 
     # ---------------------------------------------------------------- control
@@ -111,6 +113,21 @@ class VoicePipeline:
             self._shifter.set_semitones(self.settings.pitch)
         if "voice" in changes and self._tts is not None:
             self._tts.set_voice(self.settings.voice)
+        if changes.get("clone_voice") and self._cloner is None and self._tts is not None:
+            self._load_cloner()
+
+    def _load_cloner(self) -> None:
+        from .clone import VoiceCloner
+
+        self._emit("status", "Loading voice cloning model...")
+        cloner = VoiceCloner()
+        if not cloner.load_my_voice():
+            self.settings.clone_voice = False
+            self._emit("error", "Record your voice first (\"Use my own voice\" panel) - cloning is off")
+            return
+        src = cloner.source_embedding(self._tts.voice_key, self._tts)
+        cloner.convert(*self._tts.synthesize("Hello there."), src)  # warm up
+        self._cloner = cloner
 
     # ---------------------------------------------------------------- FX mode
     def _start_fx(self) -> None:
@@ -148,6 +165,8 @@ class VoicePipeline:
         self._emit("status", "Warming up...")
         self._stt.warm_up()
         self._tts.synthesize("ok")
+        if s.clone_voice:
+            self._load_cloner()
         if s.translate and s.source_language and s.source_language != self._tts.language:
             self._translator.translate("hello", s.source_language, self._tts.language)
         self.segmenter = UtteranceSegmenter(
@@ -206,6 +225,9 @@ class VoicePipeline:
         # Queue each sentence for playback as soon as it is synthesized.
         parts, rate, first_audio = [], self._tts.sample_rate, None
         for wav, rate in self._tts.synthesize_stream(text, speed=s.speed):
+            if s.clone_voice and self._cloner is not None:
+                src_se = self._cloner.source_embedding(self._tts.voice_key, self._tts)
+                wav, rate = self._cloner.convert(wav, rate, src_se)
             wav = effects.apply_effects(wav, rate, pitch=s.pitch, effect=s.effect)
             self._out_q.put((wav, rate))
             parts.append(wav)

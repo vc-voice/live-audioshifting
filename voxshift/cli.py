@@ -51,12 +51,17 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--voice", default="en_GB-alan-medium")
     r.add_argument("--source", help="language you speak (default: auto-detect)")
     r.add_argument("--no-translate", action="store_true")
+    r.add_argument("--clone", action="store_true", help="sound like your recorded voice (see 'enroll')")
     r.add_argument("--model", default="tiny")
     r.add_argument("--input")
     r.add_argument("--output")
     r.add_argument("--pitch", type=float, default=0.0)
     r.add_argument("--speed", type=float, default=1.0)
     r.add_argument("--effect", default="none")
+
+    e = sub.add_parser("enroll", help="record your own voice for --clone")
+    e.add_argument("--seconds", type=float, default=15)
+    e.add_argument("--input")
 
     s = sub.add_parser("say", help="speak typed text in a voice (no mic needed)")
     s.add_argument("text")
@@ -106,7 +111,7 @@ def main(argv: list[str] | None = None) -> None:
 
         settings = Settings(
             mode=args.mode, voice=args.voice, source_language=args.source,
-            translate=not args.no_translate, whisper_model=args.model,
+            translate=not args.no_translate, clone_voice=args.clone, whisper_model=args.model,
             input_device=_match_device(args.input, False), output_device=_match_device(args.output, True),
             pitch=args.pitch, speed=args.speed, effect=args.effect,
         )
@@ -118,6 +123,20 @@ def main(argv: list[str] | None = None) -> None:
                 time.sleep(0.5)
         except KeyboardInterrupt:
             pipe.stop()
+    elif args.cmd == "enroll":
+        import sounddevice as sd
+
+        from .audio import parse_device
+        from .clone import save_enrollment
+
+        print("Read aloud in your normal voice, e.g.: \"Hi, this is my voice. I'm recording a short "
+              "sample so the app can learn how I sound. The weather is nice today...\"")
+        input("Press Enter to start recording...")
+        rate = 22050
+        rec = sd.rec(int(args.seconds * rate), samplerate=rate, channels=1, dtype="float32",
+                     device=parse_device(_match_device(args.input, False)))
+        sd.wait()
+        print(f"Saved {save_enrollment(rec[:, 0], rate)}. Now use: voxshift run --clone")
     elif args.cmd == "say":
         from . import effects
         from .translate import Translator

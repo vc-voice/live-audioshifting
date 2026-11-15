@@ -17,6 +17,13 @@ from .voices import load_catalog
 MODE_AI = "AI voice - change accent / language"
 MODE_FX = "Live FX - pitch & effects only (no AI, ~40 ms)"
 
+ENROLL_SCRIPT = (
+    "Read this aloud in your normal voice (about 15 seconds): "
+    "\"Hi, this is my voice. I'm recording a short sample so the app can learn how I sound. "
+    "The weather is nice today, and later I'm going to meet a few friends for dinner. "
+    "One, two, three, four, five.\""
+)
+
 SOURCE_LANGS = {
     "Auto-detect": None, "English": "en", "Hindi": "hi", "Telugu": "te", "Tamil": "ta",
     "Spanish": "es", "French": "fr", "German": "de", "Italian": "it", "Portuguese": "pt",
@@ -32,6 +39,7 @@ class App:
         self.status = "Idle"
         self.lock = threading.Lock()
         self.preview_tts = None
+        self.preview_cloner = None
 
     # -- catalog helpers
     def languages(self) -> list[str]:
@@ -67,13 +75,13 @@ class App:
         return f"{self.status}\n\nMic: {'#' * bars}{'.' * (20 - bars)}  ({talk})"
 
     # -- actions
-    def start(self, mode, voice, src, translate, model, inp, out, pitch, speed, effect, silence):
+    def start(self, mode, voice, src, translate, clone, model, inp, out, pitch, speed, effect, silence):
         with self.lock:
             if self.pipeline and self.pipeline.running:
                 self.pipeline.stop()
             settings = Settings(
                 mode="fx" if mode == MODE_FX else "ai", voice=voice,
-                source_language=SOURCE_LANGS.get(src), translate=translate,
+                source_language=SOURCE_LANGS.get(src), translate=translate, clone_voice=clone,
                 whisper_model=model, input_device=inp, output_device=out, pitch=pitch,
                 speed=speed, effect=effect, silence_ms=int(silence),
             )
@@ -92,12 +100,36 @@ class App:
                 self.pipeline = None
         return self.status
 
-    def live_update(self, pitch, speed, effect, voice, translate, src):
+    def live_update(self, pitch, speed, effect, voice, translate, src, clone):
         if self.pipeline and self.pipeline.running:
             self.pipeline.update(pitch=pitch, speed=speed, effect=effect, voice=voice,
-                                 translate=translate, source_language=SOURCE_LANGS.get(src))
+                                 translate=translate, source_language=SOURCE_LANGS.get(src),
+                                 clone_voice=clone)
 
-    def preview(self, text, voice, pitch, speed, effect, translate):
+    def enroll(self, recording):
+        """Save the user's own voice sample recorded from the microphone."""
+        import numpy as np
+
+        from .clone import my_voice_path, save_enrollment
+
+        if recording is None:
+            return "Record yourself first (press the mic button, read the text, stop)."
+        rate, data = recording
+        data = np.asarray(data)
+        if data.dtype.kind == "i":
+            data = data.astype(np.float32) / np.iinfo(data.dtype).max
+        if data.ndim == 2:
+            data = data.mean(axis=1)
+        try:
+            save_enrollment(data.astype(np.float32), int(rate))
+        except ValueError as exc:
+            return str(exc)
+        self.preview_cloner = None
+        if self.pipeline is not None and self.pipeline._cloner is not None:
+            self.pipeline._cloner.load_my_voice()
+        return f"Saved ({len(data) / rate:.0f} s) to {my_voice_path()}. Tick 'Sound like me'."
+
+    def preview(self, text, voice, pitch, speed, effect, translate, clone):
         """Type text instead of speaking - hear it in the chosen voice/language."""
         from .translate import Translator
         from .tts import TextToSpeech
@@ -112,6 +144,16 @@ class App:
         if translate and self.preview_tts.language != "en":
             spoken = Translator().translate(text, "en", self.preview_tts.language)
         wav, rate = self.preview_tts.synthesize(spoken, speed=speed)
+        if clone:
+            from .clone import VoiceCloner
+
+            if self.preview_cloner is None:
+                self.preview_cloner = VoiceCloner()
+                if not self.preview_cloner.load_my_voice():
+                    self.preview_cloner = None
+                    return None, "Record your voice first (Use my own voice)."
+            src_se = self.preview_cloner.source_embedding(voice, self.preview_tts)
+            wav, rate = self.preview_cloner.convert(wav, rate, src_se)
         wav = effects.apply_effects(wav, rate, pitch=pitch, effect=effect)
         return (rate, wav), spoken
 
@@ -142,6 +184,7 @@ def build(app: App | None = None) -> gr.Blocks:
                 with gr.Row():
                     src = gr.Dropdown(list(SOURCE_LANGS), value="Auto-detect", label="I am speaking")
                     translate = gr.Checkbox(True, label="Translate to the voice's language")
+                    clone = gr.Checkbox(False, label="Sound like me (my own voice, +~1-2 s)")
                     model = gr.Dropdown(MODEL_SIZES, value="tiny", label="Recognition model (tiny = fastest)")
                 with gr.Row():
                     inp = gr.Dropdown(["default"] + inputs, value="default", label="Microphone")
@@ -158,6 +201,13 @@ def build(app: App | None = None) -> gr.Blocks:
             with gr.Column(scale=2):
                 status = gr.Textbox(value="Idle", label="Status", lines=3, interactive=False)
                 transcript = gr.Markdown(app.transcript_md())
+                with gr.Accordion("Use my own voice (voice cloning)", open=False):
+                    gr.Markdown(ENROLL_SCRIPT + "\n\nThis only records **your** voice from "
+                                "the mic; please don't use it to imitate other people.")
+                    sample = gr.Audio(sources=["microphone"], type="numpy",
+                                      label="Record 10-20 seconds")
+                    save = gr.Button("Save my voice")
+                    enroll_status = gr.Markdown()
                 with gr.Accordion("Try it without a mic", open=False):
                     text = gr.Textbox("Hello, how are you today?", label="Type something")
                     say = gr.Button("Speak it")
@@ -168,13 +218,14 @@ def build(app: App | None = None) -> gr.Blocks:
             lambda lang: gr.update(choices=app.voices_for(lang), value=app.voices_for(lang)[0][1]),
             language, voice,
         )
-        all_inputs = [mode, voice, src, translate, model, inp, out, pitch, speed, effect, silence]
+        all_inputs = [mode, voice, src, translate, clone, model, inp, out, pitch, speed, effect, silence]
         start.click(app.start, all_inputs, status)
         stop.click(app.stop, None, status)
-        live = [pitch, speed, effect, voice, translate, src]
+        live = [pitch, speed, effect, voice, translate, src, clone]
         for c in live:
             c.change(app.live_update, live, None)
-        say.click(app.preview, [text, voice, pitch, speed, effect, translate], [audio, said])
+        say.click(app.preview, [text, voice, pitch, speed, effect, translate, clone], [audio, said])
+        save.click(app.enroll, sample, enroll_status)
 
         timer = gr.Timer(0.5)
         timer.tick(lambda: (app.level_text(), app.transcript_md()), None, [status, transcript])

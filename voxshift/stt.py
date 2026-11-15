@@ -15,6 +15,8 @@ MODEL_SIZES = ["tiny", "base", "small", "medium", "large-v3", "distil-large-v3"]
 # Re-check the spoken language every N utterances when auto-detecting.
 REDETECT_EVERY = 6
 
+_PROMPTS = {"en": "Hello, how are you? I am fine, thanks."}
+
 
 @dataclass
 class Transcript:
@@ -61,6 +63,10 @@ class SpeechToText:
                 vad_filter=False,
                 condition_on_previous_text=False,
                 without_timestamps=True,
+                # A short example steers the small models to normal punctuation
+                # ("Hello, how are you" rather than "Hello? How are you"), which
+                # matters for translation. Only used for English.
+                initial_prompt=_PROMPTS.get(hint or ""),
             )
             text = " ".join(s.text.strip() for s in segments).strip()
         if language is None:
